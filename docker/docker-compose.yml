@@ -4,17 +4,17 @@ services:
   # MCP gRPC Server
   mcp-server:
     build:
-      context: .
+      context: ..
       dockerfile: docker/server.Dockerfile
     container_name: mcp-server
     restart: unless-stopped
     ports:
       - "50051:50051"
     volumes:
-      - ./config:/app/config
-      - ./certs:/app/certs
-      - ./logs:/app/logs
-      - ./traces:/app/traces
+      - ../config:/app/config:ro
+      - ../certs:/app/certs:ro
+      - mcp_logs:/app/logs
+      - mcp_traces:/app/traces
     environment:
       - MCP_SERVER_HOST=0.0.0.0
       - MCP_SERVER_PORT=50051
@@ -34,19 +34,27 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   # Telemetry Dashboard
   dashboard:
     build:
-      context: .
+      context: ..
       dockerfile: docker/dashboard.Dockerfile
     container_name: mcp-dashboard
     restart: unless-stopped
     ports:
       - "8050:8050"
     volumes:
-      - ./traces:/app/traces
-      - ./logs:/app/logs
+      - mcp_traces:/app/traces:ro
+      - mcp_logs:/app/logs:ro
     environment:
       - DASH_DEBUG=false
       - DASH_REQUESTS_PATHNAME_PREFIX=/
@@ -54,7 +62,8 @@ services:
       - REFRESH_INTERVAL=5
       - LOG_LEVEL=INFO
     depends_on:
-      - mcp-server
+      mcp-server:
+        condition: service_healthy
     networks:
       - mcp-network
     healthcheck:
@@ -63,6 +72,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   # Prometheus for metrics collection
   prometheus:
@@ -72,7 +89,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus:/etc/prometheus
+      - ../config/prometheus:/etc/prometheus:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -80,6 +97,7 @@ services:
       - '--web.console.libraries=/etc/prometheus/console_libraries'
       - '--web.console.templates=/etc/prometheus/consoles'
       - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=15d'
     networks:
       - mcp-network
     healthcheck:
@@ -88,6 +106,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
 
   # Grafana for advanced visualization
   grafana:
@@ -97,27 +123,51 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ../config/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=secure_password
       - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_STRICT_TRANSPORT_SECURITY=true
+      - GF_SECURITY_STRICT_TRANSPORT_SECURITY_MAX_AGE_SECONDS=31536000
     networks:
       - mcp-network
     depends_on:
-      - prometheus
+      prometheus:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
 networks:
   mcp-network:
     driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
 
 volumes:
   prometheus_data:
+    driver: local
   grafana_data:
+    driver: local
+  mcp_logs:
+    driver: local
+  mcp_traces:
+    driver: local

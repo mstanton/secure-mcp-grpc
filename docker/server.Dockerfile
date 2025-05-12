@@ -1,5 +1,5 @@
-# Use an official Python runtime as a parent image
-FROM python:3.11-slim
+# Build stage
+FROM python:3.11-slim as builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -7,15 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Set working directory
-WORKDIR /app
-
-# Create non-root user
-RUN useradd -m -r mcpuser && \
-    mkdir -p /app/logs /app/traces /app/config /app/certs && \
-    chown -R mcpuser:mcpuser /app
-
-# Install system dependencies
+# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libssl-dev \
@@ -24,32 +16,51 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+# Create and activate virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Install Python dependencies
 COPY pyproject.toml .
+RUN pip install --no-cache-dir build
+RUN pip install --no-cache-dir ".[telemetry]"
 
-# Install Python dependencies using uv (much faster than pip)
-RUN uv pip install -e ".[telemetry]"
+# Runtime stage
+FROM python:3.11-slim
 
-# Copy the project code
-COPY secure_mcp_grpc/ ./secure_mcp_grpc/
-COPY scripts/ ./scripts/
-COPY config/ ./config/
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl-dev \
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+
+# Create non-root user
+RUN useradd -m -r mcpuser && \
+    mkdir -p /app/logs /app/traces /app/config /app/certs && \
+    chown -R mcpuser:mcpuser /app
+
+# Set working directory
+WORKDIR /app
+
+# Copy application code
+COPY --chown=mcpuser:mcpuser secure_mcp_grpc/ ./secure_mcp_grpc/
+COPY --chown=mcpuser:mcpuser scripts/ ./scripts/
+COPY --chown=mcpuser:mcpuser config/ ./config/
 
 # Generate Protocol Buffers
 RUN python -m secure_mcp_grpc.tools.generate_protos
 
-# Fix permissions
-RUN chown -R mcpuser:mcpuser /app
-
 # Switch to non-root user
 USER mcpuser
-
-# Set up logging
-RUN mkdir -p ${HOME}/.config/secure_mcp_grpc
 
 # Expose the gRPC port
 EXPOSE 50051

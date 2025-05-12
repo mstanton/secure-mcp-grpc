@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "50051:50051"
+    volumes:
+      - ./config:/app/config
+      - ./certs:/app/certs
+    environment:
+      - MCP_SERVER_HOST=0.0.0.0
+      - MCP_SERVER_PORT=50051
+      - MCP_AUTH_TYPE=mtls
+      - MCP_CERT_PATH=/app/certs/server.crt
+      - MCP_KEY_PATH=/app/certs/server.key
+      - MCP_CA_PATH=/app/certs/ca.crt
+    networks:
+      - mcp-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus:/etc/prometheus
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - mcp-network
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - mcp-network
+    depends_on:
+      - prometheus
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python -m secure_mcp_grpc.dashboard
+    ports:
+      - "8050:8050"
+    volumes:
+      - ./config:/app/config
+    environment:
+      - DASHBOARD_HOST=0.0.0.0
+      - DASHBOARD_PORT=8050
+    networks:
+      - mcp-network
+    depends_on:
+      - mcp-server
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  mcp-network:
+    driver: bridge 

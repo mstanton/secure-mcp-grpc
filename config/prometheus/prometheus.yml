@@ -1,0 +1,30 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'mcp-server'
+    static_configs:
+      - targets: ['mcp-server:50051']
+    metrics_path: '/metrics'
+    scheme: 'http'
+
+  - job_name: 'mcp-dashboard'
+    static_configs:
+      - targets: ['dashboard:8050']
+    metrics_path: '/metrics'
+    scheme: 'http' 
