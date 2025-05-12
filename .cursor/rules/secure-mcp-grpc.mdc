@@ -1,3 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
 # Cursor.ai Project Maintenance Guide: Secure MCP-gRPC
 
 ## Project Context
