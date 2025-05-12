@@ -22,12 +22,14 @@ The Model Context Protocol (MCP) enables AI models to communicate with external 
 
 - [Features](#-features)
 - [Architecture](#-architecture)
-- [Installation](#-installation)
+- [Prerequisites](#-prerequisites)
+- [Quick Start](#-quick-start)
+- [Docker Deployment](#-docker-deployment)
+- [Manual Installation](#-manual-installation)
 - [Configuration](#-configuration)
-- [Usage](#-usage)
-- [Security Best Practices](#-security-best-practices)
-- [Observability](#-observability)
-- [Dashboard](#-dashboard)
+- [Security](#-security)
+- [Monitoring](#-monitoring)
+- [Development](#-development)
 - [Contributing](#-contributing)
 - [License](#-license)
 
@@ -101,294 +103,167 @@ The Secure MCP-gRPC system consists of several core components:
 4. **MCP Clients**: AI models that communicate with the server
 5. **Prometheus/Grafana**: Additional monitoring and alerting tools
 
-## 🚀 Installation
+## 📋 Prerequisites
 
-### Prerequisites
+- Docker and Docker Compose
+- Python 3.8+ (for development)
+- OpenSSL (for certificate generation)
+- Git
 
-- Python 3.8+
-- gRPC tools
-- TLS certificates for secure communication
-- Docker and Docker Compose (for containerized deployment)
+## 🚀 Quick Start
 
-### Installation from PyPI
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/secure-mcp-grpc.git
+   cd secure-mcp-grpc
+   ```
 
-```bash
-pip install secure-mcp-grpc
-```
+2. Run the setup script:
+   ```bash
+   ./setup.sh
+   ```
 
-### Installation from Source
+3. Start the services:
+   ```bash
+   docker-compose -f docker/docker-compose.yml up -d
+   ```
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/secure-mcp-grpc.git
-cd secure-mcp-grpc
+4. Access the services:
+   - gRPC Server: localhost:50051
+   - Dashboard: http://localhost:8050
+   - Grafana: http://localhost:3000
+   - Prometheus: http://localhost:9090
 
-# Install in development mode with all extras
-pip install -e ".[full]"
+## 🐳 Docker Deployment
 
-# Generate Protocol Buffer code
-python -m secure_mcp_grpc.tools.generate_protos
-```
+### Production Deployment
 
-### Docker Installation
+1. Build and start all services:
+   ```bash
+   docker-compose -f docker/docker-compose.yml up -d
+   ```
 
-```bash
-# Build and start all services
-docker-compose up -d
+2. View logs:
+   ```bash
+   docker-compose -f docker/docker-compose.yml logs -f
+   ```
 
-# To stop all services
-docker-compose down
-```
+3. Stop services:
+   ```bash
+   docker-compose -f docker/docker-compose.yml down
+   ```
+
+### Service Details
+
+- **MCP Server**: Secure gRPC server with mTLS authentication
+- **Dashboard**: Real-time visualization of traffic and metrics
+- **Prometheus**: Metrics collection and storage
+- **Grafana**: Advanced metrics visualization and alerting
+
+### Resource Management
+
+Each service has resource limits and reservations:
+- MCP Server: 1 CPU, 1GB RAM
+- Dashboard: 0.5 CPU, 512MB RAM
+- Prometheus: 0.5 CPU, 1GB RAM
+- Grafana: 0.5 CPU, 512MB RAM
 
 ## ⚙️ Configuration
 
-Secure MCP-gRPC uses YAML configuration files for server, client, and dashboard settings.
-
-### Server Configuration
-
-The main server configuration file is located at `config/server.yaml`.
-
-```yaml
-# Example minimal configuration
-server:
-  host: "0.0.0.0"
-  port: 50051
-
-security:
-  auth:
-    type: "mtls"
-    mtls:
-      cert_path: "/path/to/server.crt"
-      key_path: "/path/to/server.key"
-      ca_path: "/path/to/ca.crt"
-```
-
 ### Environment Variables
 
-You can also configure the server using environment variables:
-
+Key environment variables for the MCP server:
 ```bash
-export MCP_SERVER_HOST=0.0.0.0
-export MCP_SERVER_PORT=50051
-export MCP_AUTH_TYPE=mtls
-export MCP_CERT_PATH=/path/to/server.crt
-export MCP_KEY_PATH=/path/to/server.key
-export MCP_CA_PATH=/path/to/ca.crt
+MCP_SERVER_HOST=0.0.0.0
+MCP_SERVER_PORT=50051
+MCP_AUTH_TYPE=mtls
+MCP_CERT_PATH=/app/certs/server.crt
+MCP_KEY_PATH=/app/certs/server.key
+MCP_CA_PATH=/app/certs/ca.crt
 ```
 
-See [Configuration Guide](docs/configuration.md) for detailed configuration options.
+### Configuration Files
 
-## 🧰 Usage
+- Server config: `config/server.yaml`
+- Prometheus config: `config/prometheus/prometheus.yml`
+- Grafana config: `config/grafana/provisioning/`
 
-### Starting the Server
-
-```python
-from secure_mcp_grpc import SecureMCPServer, MTLSAuthProvider
-from mcp.server import MCPServer
-
-# Create your MCP server implementation
-mcp_server = MCPServer(tools={
-    "example_tool": {
-        "description": "An example tool",
-        "parameters": {
-            "param1": {"type": "string"}
-        }
-    }
-})
-
-# Create a secure server with mTLS authentication
-auth_provider = MTLSAuthProvider(
-    cert_path="/path/to/server.crt",
-    key_path="/path/to/server.key",
-    ca_path="/path/to/ca.crt"
-)
-
-secure_server = SecureMCPServer(
-    mcp_server=mcp_server,
-    auth_provider=auth_provider,
-    host="0.0.0.0",
-    port=50051,
-    telemetry_enabled=True
-)
-
-# Start the server
-secure_server.start()
-```
-
-### Client Implementation
-
-```python
-from secure_mcp_grpc import SecureMCPClient, MTLSAuthProvider
-
-# Create a secure client with mTLS authentication
-auth_provider = MTLSAuthProvider(
-    cert_path="/path/to/client.crt",
-    key_path="/path/to/client.key",
-    ca_path="/path/to/ca.crt"
-)
-
-client = SecureMCPClient(
-    host="localhost",
-    port=50051,
-    auth_provider=auth_provider
-)
-
-# Connect to the server
-await client.connect()
-
-# Send a request
-response = await client.send_request(
-    method="example_tool",
-    params={"param1": "value1"}
-)
-
-# Print the response
-print(response.result)
-```
-
-### Running the Dashboard
-
-```bash
-# Start the telemetry dashboard
-python -m secure_mcp_grpc.dashboard.app --traces-dir /path/to/traces --port 8050
-```
-
-## 🔐 Security Best Practices
+## 🔒 Security
 
 ### Certificate Management
 
-Always use strong certificates for mTLS authentication:
+1. Generate certificates:
+   ```bash
+   ./scripts/generate_certs.sh
+   ```
 
-```bash
-# Generate a CA key and certificate
-openssl genrsa -out ca.key 4096
-openssl req -new -x509 -key ca.key -out ca.crt -days 365
+2. Update certificates:
+   ```bash
+   ./scripts/update_certs.sh
+   ```
 
-# Generate server and client certificates
-# (see docs/certificates.md for detailed instructions)
-```
+### Security Best Practices
 
-### Access Control
+1. Use strong passwords for Grafana
+2. Keep certificates secure and regularly rotated
+3. Monitor security events in Grafana
+4. Use rate limiting for all clients
+5. Enable audit logging
 
-Implement the principle of least privilege by restricting model access to only necessary tools:
-
-```yaml
-security:
-  authorization:
-    enabled: true
-    default_policy: "deny"
-    access_control:
-      model-a:
-        - "summarize_text"
-        - "check_grammar"
-      model-b:
-        - "analyze_sentiment"
-```
-
-### Authentication Token Security
-
-If using JWT or OAuth2:
-
-1. Use short-lived tokens
-2. Implement token rotation
-3. Validate all claims including audience and issuer
-4. Use asymmetric keys when possible
-
-For complete security recommendations, see [Security Guide](docs/security.md).
-
-## 👁️ Observability
-
-### Interaction Tracing
-
-The system captures detailed information about each model interaction:
-
-```python
-# Enable interaction tracing
-tracer = InteractionTracer(
-    storage_path="/path/to/traces",
-    export_format="jsonl",
-    sanitize_fields=["password", "token", "secret"]
-)
-
-# Record a request event
-await tracer.record_request(
-    method="summarize_text",
-    params={"text": "This is a sample text to summarize."},
-    session_id="session-123",
-    user_id="model-a"
-)
-
-# Record a response event
-await tracer.record_response(
-    request_id="request-456",
-    result={"summary": "A sample text."},
-    session_id="session-123",
-    processing_time_ms=150
-)
-```
+## 📊 Monitoring
 
 ### Metrics
 
-Prometheus metrics are exposed by default on port 9090:
-
-- Request counts and rates
-- Response latencies
+Key metrics available in Prometheus:
+- Request rate
+- Response time
 - Error rates
-- Security events
 - Resource utilization
+- Security events
 
-### Log Formats
+### Dashboards
 
-Logs are available in both structured JSON and human-readable formats:
+Pre-configured Grafana dashboards:
+- Traffic Overview
+- Performance Metrics
+- Security Events
+- Resource Usage
 
-```
-2025-05-11 10:15:23 - secure_mcp_grpc.server - INFO - Starting MCP session 8f1c7e5a from 192.168.1.100
-2025-05-11 10:15:24 - secure_mcp_grpc.server - INFO - Authentication successful for user model-a
-```
+## 👩‍💻 Development
 
-## 📊 Dashboard
+### Local Development
 
-The telemetry dashboard provides real-time visualization of system activity:
+1. Install development dependencies:
+   ```bash
+   pip install -e ".[dev]"
+   ```
 
-### Dashboard Features
+2. Run tests:
+   ```bash
+   pytest tests/
+   ```
 
-1. **Overview**: Summary metrics and system health
-2. **Traffic Flow**: Sankey diagrams of request patterns
-3. **Security**: Heatmaps and anomaly detection
-4. **Performance**: Latency distributions and bottleneck analysis
-5. **Settings**: Configuration options for the dashboard
+3. Run benchmarks:
+   ```bash
+   pytest tests/benchmarks/
+   ```
 
-### Dashboard Screenshots
+### Code Style
 
-![Dashboard Overview](docs/images/dashboard-overview.png)
-![Traffic Flow](docs/images/traffic-flow.png)
-![Security Heatmap](docs/images/security-heatmap.png)
-
-### Dashboard Access
-
-Access the dashboard at `http://your-server:8050/` after starting it.
+- Use Black for formatting
+- Use isort for import sorting
+- Use mypy for type checking
+- Follow PEP 8 guidelines
 
 ## 🤝 Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to the project.
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests and linting
+5. Submit a pull request
 
-### Development Setup
-
-```bash
-# Set up development environment
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Check code style
-black .
-isort .
-flake8 .
-
-# Run type checking
-mypy .
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## 📄 License
 
