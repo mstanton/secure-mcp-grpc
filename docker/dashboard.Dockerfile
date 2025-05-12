@@ -29,13 +29,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # Copy requirements first for better caching
 COPY requirements.txt .
 COPY pyproject.toml .
 
-# Install Python dependencies
-RUN pip install --upgrade pip && \
-    pip install -e ".[dashboard,telemetry]" && \
+# Install Python dependencies using uv (much faster than pip)
+RUN uv pip install -e ".[dashboard,telemetry]" && \
     # Clean up cache
     find /usr/local/lib/python3.*/site-packages -name "*.pyc" -delete && \
     find /usr/local/lib/python3.*/site-packages -name "__pycache__" -delete

@@ -24,13 +24,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # Copy requirements first for better caching
 COPY requirements.txt .
 COPY pyproject.toml .
 
-# Install Python dependencies
-RUN pip install --upgrade pip && \
-    pip install -e ".[telemetry]"
+# Install Python dependencies using uv (much faster than pip)
+RUN uv pip install -e ".[telemetry]"
 
 # Copy the project code
 COPY secure_mcp_grpc/ ./secure_mcp_grpc/
@@ -51,6 +53,10 @@ RUN mkdir -p ${HOME}/.config/secure_mcp_grpc
 
 # Expose the gRPC port
 EXPOSE 50051
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import grpc; channel = grpc.insecure_channel('localhost:50051'); channel.channel_ready() and exit(0) or exit(1)" || exit 1
 
 # Command to run the server
 ENTRYPOINT ["python", "-m", "secure_mcp_grpc.server.main"]
