@@ -1,0 +1,212 @@
+syntax = "proto3";
+
+package telemetry;
+
+// Telemetry service for collecting and analyzing MCP usage data
+service TelemetryService {
+  // Submit telemetry data to the collector
+  rpc SubmitTelemetry(TelemetryRequest) returns (TelemetryResponse);
+  
+  // Stream telemetry data for real-time analysis
+  rpc StreamTelemetry(stream TelemetryEvent) returns (TelemetryStreamResponse);
+  
+  // Get aggregated telemetry data
+  rpc GetAggregatedData(AggregationRequest) returns (AggregationResponse);
+}
+
+// Main telemetry request containing multiple events
+message TelemetryRequest {
+  string source_id = 1;
+  string instance_id = 2;
+  string version = 3;
+  repeated TelemetryEvent events = 4;
+  
+  // Whether to anonymize data
+  bool anonymize = 5;
+}
+
+// Telemetry response with processing status
+message TelemetryResponse {
+  bool success = 1;
+  string message = 2;
+  string request_id = 3;
+}
+
+// Status for streaming telemetry
+message TelemetryStreamResponse {
+  bool success = 1;
+  string session_id = 2;
+  uint64 processed_events = 3;
+}
+
+// A single telemetry event
+message TelemetryEvent {
+  uint64 timestamp = 1;
+  EventType type = 2;
+  Severity severity = 3;
+  string event_id = 4;
+  map<string, string> metadata = 5;
+  
+  // Event-specific data
+  oneof event_data {
+    SecurityEvent security_event = 6;
+    PerformanceMetrics performance_metrics = 7;
+    UsageMetrics usage_metrics = 8;
+    ErrorEvent error_event = 9;
+    HealthEvent health_event = 10;
+  }
+  
+  enum EventType {
+    UNKNOWN = 0;
+    SECURITY = 1;
+    PERFORMANCE = 2;
+    USAGE = 3;
+    ERROR = 4;
+    HEALTH = 5;
+  }
+  
+  enum Severity {
+    INFO = 0;
+    WARNING = 1;
+    ERROR = 2;
+    CRITICAL = 3;
+  }
+}
+
+// Security-related events
+message SecurityEvent {
+  SecurityEventType type = 1;
+  string source_ip = 2;
+  string user_id = 3;
+  string resource = 4;
+  string action = 5;
+  bool success = 6;
+  repeated string tags = 7;
+  
+  enum SecurityEventType {
+    UNKNOWN = 0;
+    AUTHENTICATION = 1;
+    AUTHORIZATION = 2;
+    RATE_LIMIT = 3;
+    DATA_ACCESS = 4;
+    CONFIGURATION_CHANGE = 5;
+    ANOMALY = 6;
+    INTRUSION_ATTEMPT = 7;
+  }
+}
+
+// Performance-related metrics
+message PerformanceMetrics {
+  uint64 request_id = 1;
+  uint64 request_duration_ms = 2;
+  uint64 processing_time_ms = 3;
+  uint64 queue_time_ms = 4;
+  uint32 cpu_usage_percent = 5;
+  uint32 memory_usage_mb = 6;
+  uint32 concurrent_requests = 7;
+  
+  // AI model specific metrics
+  uint32 token_count = 8;
+  float tokens_per_second = 9;
+  uint32 batch_size = 10;
+}
+
+// Usage patterns and statistics
+message UsageMetrics {
+  string user_id = 1;
+  string model_id = 2;
+  string method = 3;
+  uint64 request_count = 4;
+  uint64 token_count = 5;
+  repeated string features_used = 6;
+  
+  // Anonymized sample of inputs/outputs for quality monitoring
+  repeated SamplePair samples = 7;
+}
+
+// Error and exception information
+message ErrorEvent {
+  ErrorType type = 1;
+  string error_code = 2;
+  string message = 3;
+  string stack_trace = 4;
+  map<string, string> context = 5;
+  
+  enum ErrorType {
+    UNKNOWN = 0;
+    VALIDATION = 1;
+    AUTHENTICATION = 2;
+    AUTHORIZATION = 3;
+    RATE_LIMIT = 4;
+    TIMEOUT = 5;
+    CONNECTION = 6;
+    INTERNAL = 7;
+  }
+}
+
+// Health status updates
+message HealthEvent {
+  ServiceHealth service_health = 1;
+  repeated ComponentHealth component_health = 2;
+  map<string, string> environment = 3;
+  
+  enum HealthStatus {
+    UNKNOWN = 0;
+    HEALTHY = 1;
+    DEGRADED = 2;
+    UNHEALTHY = 3;
+  }
+  
+  message ServiceHealth {
+    HealthStatus status = 1;
+    string message = 2;
+    uint64 uptime_seconds = 3;
+  }
+  
+  message ComponentHealth {
+    string name = 1;
+    HealthStatus status = 2;
+    string message = 3;
+    map<string, string> metrics = 4;
+  }
+}
+
+// Anonymized sample pairs for quality monitoring
+message SamplePair {
+  string input_hash = 1;
+  string output_hash = 2;
+  float quality_score = 3;
+  map<string, float> quality_dimensions = 4;
+}
+
+// Request for aggregated telemetry data
+message AggregationRequest {
+  string source_id = 1;
+  uint64 start_time = 2;
+  uint64 end_time = 3;
+  repeated string metrics = 4;
+  string group_by = 5;
+  map<string, string> filters = 6;
+}
+
+// Response with aggregated telemetry data
+message AggregationResponse {
+  bool success = 1;
+  string message = 2;
+  string request_id = 3;
+  
+  repeated AggregationResult results = 4;
+}
+
+// Result of data aggregation
+message AggregationResult {
+  string metric = 1;
+  string group_by = 2;
+  repeated DataPoint data_points = 3;
+  
+  message DataPoint {
+    string group_value = 1;
+    double value = 2;
+    uint64 timestamp = 3;
+  }
+}

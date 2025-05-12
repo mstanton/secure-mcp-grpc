@@ -1,0 +1,7 @@
+#!/bin/bash
+# Complete setup script for Secure MCP-gRPC project
+
+set -e  # Exit on error
+
+# Display welcome message
+echo "===============================

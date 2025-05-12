@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package mcp;
+
+// The main MCP service definition
+service MCPService {
+  // Bidirectional streaming RPC for standard MCP messages
+  rpc Call(stream MCPRequest) returns (stream MCPResponse);
+  
+  // Unary RPC for reflection requests
+  rpc Reflect(ReflectionRequest) returns (ReflectionResponse);
+  
+  // Server streaming RPC for health checks
+  rpc HealthStream(HealthRequest) returns (stream HealthResponse);
+}
+
+// Standard MCP Request message
+message MCPRequest {
+  string id = 1;
+  string method = 2;
+  map<string, string> params = 3;
+  
+  // Security metadata
+  SecurityContext security_context = 4;
+}
+
+// Standard MCP Response message
+message MCPResponse {
+  string id = 1;
+  string result = 2;  // JSON-encoded result
+  ErrorObject error = 3;
+  
+  // Performance metrics
+  uint64 processing_time_ms = 4;
+  uint32 token_count = 5;
+}
+
+// Error object for reporting issues
+message ErrorObject {
+  int32 code = 1;
+  string message = 2;
+  string data = 3;  // JSON-encoded error data
+}
+
+// Reflection request for capability discovery
+message ReflectionRequest {
+  string id = 1;
+  
+  // Security metadata
+  SecurityContext security_context = 2;
+}
+
+// Reflection response with capability information
+message ReflectionResponse {
+  string id = 1;
+  string tools = 2;              // JSON-encoded tools
+  string resources = 3;          // JSON-encoded resources
+  string parameterized_prompts = 4;  // JSON-encoded parameterized prompts
+  string sampling = 5;           // JSON-encoded sampling
+  
+  // Security capabilities
+  repeated string auth_methods = 6;
+  bool requires_encryption = 7;
+  uint32 version = 8;
+}
+
+// Security context for authentication and authorization
+message SecurityContext {
+  oneof auth_type {
+    JWTAuth jwt_auth = 1;
+    OAuth2Auth oauth2_auth = 2;
+    APIKeyAuth api_key_auth = 3;
+  }
+  
+  string request_id = 4;
+  string client_id = 5;
+  uint64 timestamp = 6;
+  map<string, string> metadata = 7;
+}
+
+// JWT authentication details
+message JWTAuth {
+  string token = 1;
+}
+
+// OAuth2 authentication details
+message OAuth2Auth {
+  string access_token = 1;
+  string token_type = 2;
+}
+
+// API Key authentication details
+message APIKeyAuth {
+  string key = 1;
+}
+
+// Health check request
+message HealthRequest {
+  string id = 1;
+  bool detailed = 2;
+  SecurityContext security_context = 3;
+}
+
+// Health check response
+message HealthResponse {
+  string id = 1;
+  Status status = 2;
+  map<string, Status> component_status = 3;
+  map<string, string> metrics = 4;
+  
+  enum Status {
+    UNKNOWN = 0;
+    HEALTHY = 1;
+    DEGRADED = 2;
+    UNHEALTHY = 3;
+  }
+}

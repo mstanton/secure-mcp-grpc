@@ -1,0 +1,166 @@
+# Secure MCP-gRPC Server Configuration
+
+# Server configuration
+server:
+  host: "0.0.0.0"  # Listen on all interfaces
+  port: 50051      # Default gRPC port
+  max_workers: 10  # Number of worker threads
+  max_concurrent_rpcs: 100
+  keepalive_time_ms: 7200000  # 2 hours
+  keepalive_timeout_ms: 20000  # 20 seconds
+  max_message_size_mb: 100  # Maximum message size in MB
+
+# Security configuration
+security:
+  # Authentication configuration
+  auth:
+    type: "mtls"  # Options: mtls, jwt, oauth2, none
+    mtls:
+      cert_path: "/app/certs/server.crt"
+      key_path: "/app/certs/server.key"
+      ca_path: "/app/certs/ca.crt"
+      require_client_auth: true
+    jwt:
+      secret_key_path: "/app/certs/jwt_secret.key"
+      algorithm: "RS256"
+      audience: "mcp-clients"
+      issuer: "mcp-auth-server"
+    oauth2:
+      client_id: "mcp-server"
+      client_secret_path: "/app/certs/oauth_client_secret.key"
+      token_url: "https://auth.example.com/oauth/token"
+      jwks_url: "https://auth.example.com/.well-known/jwks.json"
+  
+  # Authorization configuration
+  authorization:
+    enabled: true
+    default_policy: "deny"  # Options: allow, deny
+    access_control:
+      # User ID to allowed methods mapping
+      admin:
+        - "*"  # Allow all methods
+      model-a:
+        - "summarize_text"
+        - "check_grammar"
+      model-b:
+        - "analyze_sentiment"
+        - "extract_entities"
+  
+  # Rate limiting configuration
+  rate_limit:
+    enabled: true
+    requests_per_minute: 100  # Requests per minute per client
+    burst_size: 20  # Allow temporary bursts
+    by_user: true  # Apply rate limits per user instead of per IP
+  
+  # Security headers
+  headers:
+    strict_transport_security: true
+    content_security_policy: true
+    x_content_type_options: true
+    x_frame_options: "DENY"
+    x_xss_protection: true
+  
+  # Input validation
+  validation:
+    max_request_size_kb: 1024  # 1 MB
+    sanitize_inputs: true
+    validate_json: true
+
+# Telemetry configuration
+telemetry:
+  enabled: true
+  exporter: "prometheus"  # Options: prometheus, otlp, file, console
+  prometheus:
+    port: 9090
+    path: "/metrics"
+  otlp:
+    endpoint: "otel-collector:4317"
+    insecure: false
+  file:
+    path: "/app/logs/telemetry.log"
+    rotation:
+      max_size_mb: 100
+      backup_count: 5
+  sampling_rate: 1.0  # Percentage of requests to sample (0.0-1.0)
+  
+  # Interaction tracing
+  tracing:
+    enabled: true
+    storage_path: "/app/traces"
+    export_format: "jsonl"  # Options: jsonl, csv, parquet
+    sanitize_fields:
+      - "password"
+      - "token"
+      - "secret"
+      - "key"
+      - "credential"
+    max_payload_size: 1048576  # 1 MB
+    encryption_enabled: true
+    encryption_key_path: "/app/certs/trace_encryption.key"
+
+# Logging configuration
+logging:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file:
+    enabled: true
+    path: "/app/logs/mcp_server.log"
+    rotation:
+      max_size_mb: 100
+      backup_count: 5
+  console:
+    enabled: true
+    color: true
+  json_format: false  # Use JSON format for structured logging
+
+# Health check configuration
+health:
+  enabled: true
+  interval_seconds: 5
+  components:
+    - name: "auth"
+      critical: true
+    - name: "rate_limiter"
+      critical: false
+    - name: "telemetry"
+      critical: false
+
+# MCP configuration (specific to your MCP server implementation)
+mcp:
+  tools:
+    summarize_text:
+      description: "Summarize a text document"
+      parameters:
+        text:
+          type: "string"
+          description: "The text to summarize"
+        max_length:
+          type: "integer"
+          description: "The maximum length of the summary in characters"
+          default: 200
+    
+    analyze_sentiment:
+      description: "Analyze the sentiment of a text"
+      parameters:
+        text:
+          type: "string"
+          description: "The text to analyze"
+    
+    check_grammar:
+      description: "Check grammar in a text"
+      parameters:
+        text:
+          type: "string"
+          description: "The text to check"
+    
+    extract_entities:
+      description: "Extract entities from a text"
+      parameters:
+        text:
+          type: "string"
+          description: "The text to extract entities from"
+        types:
+          type: "array"
+          description: "The types of entities to extract"
+          default: ["person", "organization", "location"]
