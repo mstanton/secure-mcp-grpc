@@ -91,14 +91,14 @@ MCP_CA_PATH=/app/certs/ca.crt
 ### Certificate Management
 
 1. Generate certificates:
-   ```bash
+```bash
    ./scripts/generate_certs.sh
    ```
 
 2. Update certificates:
    ```bash
    ./scripts/update_certs.sh
-   ```
+```
 
 ### Security Best Practices
 
@@ -142,7 +142,7 @@ Pre-configured Grafana dashboards:
    ```
 
 3. Run benchmarks:
-   ```bash
+```bash
    pytest tests/benchmarks/
    ```
 

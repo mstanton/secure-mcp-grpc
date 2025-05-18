@@ -34,6 +34,8 @@ from secure_mcp_grpc.core.types import (
 from secure_mcp_grpc.server.auth import (
     AuthProvider, MTLSAuthProvider, JWTAuthProvider, OAuth2AuthProvider
 )
+from secure_mcp_grpc.server.security_config import SecurityConfig
+from secure_mcp_grpc.server.security_middleware import SecurityMiddleware
 
 # Import interceptors
 from secure_mcp_grpc.interceptors import (
@@ -67,8 +69,8 @@ class SecureMCPServicer(mcp_pb2_grpc.MCPServiceServicer):
         self,
         mcp_server,
         auth_provider: AuthProvider,
+        security_config: SecurityConfig,
         telemetry_collector: Optional[TelemetryCollector] = None,
-        rate_limit: int = DEFAULT_RATE_LIMIT,
         access_control: Optional[Dict[str, List[str]]] = None
     ):
         """
@@ -77,15 +79,18 @@ class SecureMCPServicer(mcp_pb2_grpc.MCPServiceServicer):
         Args:
             mcp_server: The MCP server implementation that will handle the requests.
             auth_provider: The authentication provider to use.
+            security_config: Security configuration settings.
             telemetry_collector: Optional telemetry collector for monitoring.
-            rate_limit: Maximum number of requests per minute per client.
             access_control: Dictionary mapping user IDs to allowed methods.
         """
         self.mcp_server = mcp_server
         self.auth_provider = auth_provider
+        self.security_config = security_config
         self.telemetry_collector = telemetry_collector
-        self.rate_limit = rate_limit
         self.access_control = access_control or {}
+        
+        # Initialize security middleware
+        self.security_middleware = SecurityMiddleware(security_config)
         
         # Rate limiting state
         self.rate_limit_state = {}
@@ -113,10 +118,23 @@ class SecureMCPServicer(mcp_pb2_grpc.MCPServiceServicer):
         Yields:
             gRPC MCPResponse messages.
         """
+        # Process through security middleware
+        if not await self.security_middleware(request_iterator, context, "Call"):
+            return
+        
         # Create a queue for sending responses back to the client
         response_queue = asyncio.Queue()
         session_id = str(uuid.uuid4())
         client_ip = self._extract_client_ip(context)
+        
+        # Check session limits
+        if not self._check_session_limits(client_ip):
+            await self._reject_request(
+                context,
+                grpc.StatusCode.RESOURCE_EXHAUSTED,
+                "Maximum sessions per IP exceeded"
+            )
+            return
         
         # Log session start
         logger.info(f"Starting MCP session {session_id} from {client_ip}")
@@ -137,212 +155,194 @@ class SecureMCPServicer(mcp_pb2_grpc.MCPServiceServicer):
                 source_ip=client_ip
             )
         
-        # Create a task to process incoming requests
-        async def process_requests():
-            user_id = None
-            
-            try:
-                async for proto_request in request_iterator:
-                    start_time = time.time()
-                    request_id = proto_request.id or str(uuid.uuid4())
-                    
-                    # Update session activity
-                    if session_id in self.active_sessions:
-                        self.active_sessions[session_id]["last_activity"] = time.time()
-                        self.active_sessions[session_id]["request_count"] += 1
-                    
-                    # Log request
-                    logger.debug(f"Received request {request_id} in session {session_id}: {proto_request.method}")
-                    
-                    # Check rate limits
-                    if not self._check_rate_limit(client_ip):
-                        error_response = self._create_error_response(
-                            request_id,
-                            -32429,  # Too Many Requests
-                            f"Rate limit exceeded: {self.rate_limit} requests per minute allowed"
-                        )
-                        await response_queue.put(error_response)
-                        
-                        # Record rate limit event in telemetry
-                        if self.telemetry_collector:
-                            await self.telemetry_collector.record_security_event(
-                                session_id=session_id,
-                                event_type=telemetry_pb2.TelemetryEvent.EventType.SECURITY,
-                                security_event_type=telemetry_pb2.SecurityEvent.SecurityEventType.RATE_LIMIT,
-                                success=False,
-                                severity=telemetry_pb2.TelemetryEvent.Severity.WARNING,
-                                source_ip=client_ip,
-                                user_id=user_id,
-                                resource=proto_request.method,
-                                action="rate_limit"
-                            )
-                        
-                        continue
-                    
-                    # Convert Proto request to MCP request
-                    mcp_request = self._proto_to_mcp_request(proto_request)
-                    
-                    # Extract security context if available
-                    security_context = None
-                    if hasattr(proto_request, 'security_context') and proto_request.security_context:
-                        security_context = self._extract_security_context(proto_request.security_context)
-                    
-                    # Authenticate the request
-                    auth_result = await self._authenticate_request(proto_request, context, security_context)
-                    if not auth_result.success:
-                        # Create error response for authentication failure
-                        error_response = self._create_error_response(
-                            request_id,
-                            auth_result.error_code,
-                            auth_result.error_message
-                        )
-                        await response_queue.put(error_response)
-                        
-                        # Record authentication failure in telemetry
-                        if self.telemetry_collector:
-                            await self.telemetry_collector.record_security_event(
-                                session_id=session_id,
-                                event_type=telemetry_pb2.TelemetryEvent.EventType.SECURITY,
-                                security_event_type=telemetry_pb2.SecurityEvent.SecurityEventType.AUTHENTICATION,
-                                success=False,
-                                severity=telemetry_pb2.TelemetryEvent.Severity.WARNING,
-                                source_ip=client_ip,
-                                user_id=auth_result.user_id,
-                                resource=mcp_request.method,
-                                action="authenticate"
-                            )
-                        
-                        continue
-                    
-                    # Set the user ID if successful
-                    user_id = auth_result.user_id
-                    
-                    # Update session with user ID
-                    if session_id in self.active_sessions:
-                        self.active_sessions[session_id]["user_id"] = user_id
-                    
-                    # Authorize the request
-                    auth_result = await self._authorize_request(user_id, mcp_request.method)
-                    if not auth_result.success:
-                        # Create error response for authorization failure
-                        error_response = self._create_error_response(
-                            request_id,
-                            auth_result.error_code,
-                            auth_result.error_message
-                        )
-                        await response_queue.put(error_response)
-                        
-                        # Record authorization failure in telemetry
-                        if self.telemetry_collector:
-                            await self.telemetry_collector.record_security_event(
-                                session_id=session_id,
-                                event_type=telemetry_pb2.TelemetryEvent.EventType.SECURITY,
-                                security_event_type=telemetry_pb2.SecurityEvent.SecurityEventType.AUTHORIZATION,
-                                success=False,
-                                severity=telemetry_pb2.TelemetryEvent.Severity.WARNING,
-                                source_ip=client_ip,
-                                user_id=user_id,
-                                resource=mcp_request.method,
-                                action="authorize"
-                            )
-                        
-                        continue
-                    
-                    try:
-                        # Process the request with the MCP server
-                        mcp_response = await self.mcp_server.handle_request(mcp_request)
-                        
-                        # Convert MCP response to Proto response
-                        proto_response = self._mcp_to_proto_response(mcp_response)
-                        
-                        # Add performance metrics
-                        end_time = time.time()
-                        processing_time_ms = int((end_time - start_time) * 1000)
-                        proto_response.processing_time_ms = processing_time_ms
-                        
-                        # Token count estimation if available
-                        token_count = 0
-                        if mcp_response.result and isinstance(mcp_response.result, dict):
-                            # Try to estimate token count from result
-                            result_str = json.dumps(mcp_response.result)
-                            token_count = len(result_str.split()) // 3  # Rough estimate
-                        proto_response.token_count = token_count
-                        
-                        # Record performance metrics in telemetry
-                        if self.telemetry_collector:
-                            await self.telemetry_collector.record_performance_metrics(
-                                session_id=session_id,
-                                request_id=request_id,
-                                processing_time_ms=processing_time_ms,
-                                method=mcp_request.method,
-                                user_id=user_id,
-                                token_count=token_count
-                            )
-                        
-                        # Also record usage metrics
-                        if self.telemetry_collector:
-                            await self.telemetry_collector.record_usage_metrics(
-                                session_id=session_id,
-                                user_id=user_id,
-                                model_id=self.instance_id,
-                                method=mcp_request.method,
-                                token_count=token_count
-                            )
-                        
-                        # Send the response
-                        await response_queue.put(proto_response)
-                        
-                    except Exception as e:
-                        # Handle exceptions by creating an error response
-                        logger.error(f"Error processing request: {e}", exc_info=True)
-                        error_response = self._create_error_response(
-                            request_id,
-                            -32603,  # Internal error
-                            f"Internal error: {str(e)}"
-                        )
-                        await response_queue.put(error_response)
-                        
-                        # Record error in telemetry
-                        if self.telemetry_collector:
-                            await self.telemetry_collector.record_error_event(
-                                session_id=session_id,
-                                error_type=telemetry_pb2.ErrorEvent.ErrorType.INTERNAL,
-                                error_code="-32603",
-                                message=str(e),
-                                context={
-                                    "method": mcp_request.method,
-                                    "request_id": request_id
-                                },
-                                severity=telemetry_pb2.TelemetryEvent.Severity.ERROR
-                            )
-            except Exception as e:
-                # Handle top-level exceptions
-                logger.error(f"Top-level error in process_requests: {e}", exc_info=True)
+        try:
+            async for proto_request in request_iterator:
+                # Process request through security middleware
+                if not await self.security_middleware(proto_request, context, "Call"):
+                    continue
                 
-                # Record error in telemetry
-                if self.telemetry_collector:
-                    await self.telemetry_collector.record_error_event(
-                        session_id=session_id,
-                        error_type=telemetry_pb2.ErrorEvent.ErrorType.INTERNAL,
-                        error_code="STREAM_ERROR",
-                        message=str(e),
-                        context={"session_id": session_id},
-                        severity=telemetry_pb2.TelemetryEvent.Severity.ERROR
-                    )
-            finally:
-                # Clean up the session
+                start_time = time.time()
+                request_id = proto_request.id or str(uuid.uuid4())
+                
+                # Update session activity
                 if session_id in self.active_sessions:
-                    del self.active_sessions[session_id]
+                    self.active_sessions[session_id]["last_activity"] = time.time()
+                    self.active_sessions[session_id]["request_count"] += 1
                 
-                # Log session end
-                logger.info(f"Ending MCP session {session_id}")
+                # Log request
+                logger.debug(f"Received request {request_id} in session {session_id}: {proto_request.method}")
                 
-                # Record telemetry event for session end
-                if self.telemetry_collector:
-                    await self.telemetry_collector.record_session_end(session_id)
-        
-        # Start processing requests in the background
-        asyncio.create_task(process_requests())
+                # Check rate limits
+                if not self._check_rate_limit(client_ip):
+                    error_response = self._create_error_response(
+                        request_id,
+                        -32429,  # Too Many Requests
+                        f"Rate limit exceeded: {self.security_config.max_requests_per_minute} requests per minute allowed"
+                    )
+                    await response_queue.put(error_response)
+                    
+                    # Record rate limit event in telemetry
+                    if self.telemetry_collector:
+                        await self.telemetry_collector.record_security_event(
+                            session_id=session_id,
+                            event_type=telemetry_pb2.TelemetryEvent.EventType.SECURITY,
+                            security_event_type=telemetry_pb2.SecurityEvent.SecurityEventType.RATE_LIMIT,
+                            success=False,
+                            severity=telemetry_pb2.TelemetryEvent.Severity.WARNING,
+                            source_ip=client_ip,
+                            user_id=None,
+                            resource=proto_request.method,
+                            action="rate_limit"
+                        )
+                    
+                    continue
+                
+                # Convert Proto request to MCP request
+                mcp_request = self._proto_to_mcp_request(proto_request)
+                
+                # Extract security context if available
+                security_context = None
+                if hasattr(proto_request, 'security_context') and proto_request.security_context:
+                    security_context = self._extract_security_context(proto_request.security_context)
+                
+                # Authenticate the request
+                auth_result = await self._authenticate_request(proto_request, context, security_context)
+                if not auth_result.success:
+                    # Create error response for authentication failure
+                    error_response = self._create_error_response(
+                        request_id,
+                        auth_result.error_code,
+                        auth_result.error_message
+                    )
+                    await response_queue.put(error_response)
+                    
+                    # Record authentication failure in telemetry
+                    if self.telemetry_collector:
+                        await self.telemetry_collector.record_security_event(
+                            session_id=session_id,
+                            event_type=telemetry_pb2.TelemetryEvent.EventType.SECURITY,
+                            security_event_type=telemetry_pb2.SecurityEvent.SecurityEventType.AUTHENTICATION,
+                            success=False,
+                            severity=telemetry_pb2.TelemetryEvent.Severity.WARNING,
+                            source_ip=client_ip,
+                            user_id=auth_result.user_id,
+                            resource=mcp_request.method,
+                            action="authenticate"
+                        )
+                    
+                    continue
+                
+                # Set the user ID if successful
+                user_id = auth_result.user_id
+                
+                # Update session with user ID
+                if session_id in self.active_sessions:
+                    self.active_sessions[session_id]["user_id"] = user_id
+                
+                # Authorize the request
+                auth_result = await self._authorize_request(user_id, mcp_request.method)
+                if not auth_result.success:
+                    # Create error response for authorization failure
+                    error_response = self._create_error_response(
+                        request_id,
+                        auth_result.error_code,
+                        auth_result.error_message
+                    )
+                    await response_queue.put(error_response)
+                    
+                    # Record authorization failure in telemetry
+                    if self.telemetry_collector:
+                        await self.telemetry_collector.record_security_event(
+                            session_id=session_id,
+                            event_type=telemetry_pb2.TelemetryEvent.EventType.SECURITY,
+                            security_event_type=telemetry_pb2.SecurityEvent.SecurityEventType.AUTHORIZATION,
+                            success=False,
+                            severity=telemetry_pb2.TelemetryEvent.Severity.WARNING,
+                            source_ip=client_ip,
+                            user_id=user_id,
+                            resource=mcp_request.method,
+                            action="authorize"
+                        )
+                    
+                    continue
+                
+                try:
+                    # Process the request with the MCP server
+                    mcp_response = await self.mcp_server.handle_request(mcp_request)
+                    
+                    # Convert MCP response to Proto response
+                    proto_response = self._mcp_to_proto_response(mcp_response)
+                    
+                    # Add performance metrics
+                    end_time = time.time()
+                    processing_time_ms = int((end_time - start_time) * 1000)
+                    proto_response.processing_time_ms = processing_time_ms
+                    
+                    # Token count estimation if available
+                    token_count = 0
+                    if mcp_response.result and isinstance(mcp_response.result, dict):
+                        # Try to estimate token count from result
+                        result_str = json.dumps(mcp_response.result)
+                        token_count = len(result_str.split()) // 3  # Rough estimate
+                    proto_response.token_count = token_count
+                    
+                    # Record performance metrics in telemetry
+                    if self.telemetry_collector:
+                        await self.telemetry_collector.record_performance_metrics(
+                            session_id=session_id,
+                            request_id=request_id,
+                            processing_time_ms=processing_time_ms,
+                            method=mcp_request.method,
+                            user_id=user_id,
+                            token_count=token_count
+                        )
+                    
+                    # Also record usage metrics
+                    if self.telemetry_collector:
+                        await self.telemetry_collector.record_usage_metrics(
+                            session_id=session_id,
+                            user_id=user_id,
+                            model_id=self.instance_id,
+                            method=mcp_request.method,
+                            token_count=token_count
+                        )
+                    
+                    # Send the response
+                    await response_queue.put(proto_response)
+                    
+                except Exception as e:
+                    # Handle exceptions by creating an error response
+                    logger.error(f"Error processing request: {e}", exc_info=True)
+                    error_response = self._create_error_response(
+                        request_id,
+                        -32603,  # Internal error
+                        f"Internal error: {str(e)}"
+                    )
+                    await response_queue.put(error_response)
+                    
+                    # Record error in telemetry
+                    if self.telemetry_collector:
+                        await self.telemetry_collector.record_error_event(
+                            session_id=session_id,
+                            error_type=telemetry_pb2.ErrorEvent.ErrorType.INTERNAL,
+                            error_code="-32603",
+                            message=str(e),
+                            context={
+                                "method": mcp_request.method,
+                                "request_id": request_id
+                            },
+                            severity=telemetry_pb2.TelemetryEvent.Severity.ERROR
+                        )
+        except Exception as e:
+            logger.error(f"Error in Call method: {str(e)}")
+            await self._reject_request(
+                context,
+                grpc.StatusCode.INTERNAL,
+                "Internal server error"
+            )
+        finally:
+            # Clean up session
+            self._cleanup_session(session_id)
         
         # Yield responses from the queue
         while True:
@@ -377,7 +377,7 @@ class SecureMCPServicer(mcp_pb2_grpc.MCPServiceServicer):
         if not self._check_rate_limit(client_ip):
             await context.abort(
                 grpc.StatusCode.RESOURCE_EXHAUSTED,
-                f"Rate limit exceeded: {self.rate_limit} requests per minute allowed"
+                f"Rate limit exceeded: {self.security_config.max_requests_per_minute} requests per minute allowed"
             )
             return None
         
@@ -631,7 +631,7 @@ class SecureMCPServicer(mcp_pb2_grpc.MCPServiceServicer):
         ]
         
         # Check if the rate limit is exceeded
-        if len(self.rate_limit_state[client_ip]) >= self.rate_limit:
+        if len(self.rate_limit_state[client_ip]) >= self.security_config.max_requests_per_minute:
             logger.warning(f"Rate limit exceeded for client {client_ip}")
             return False
         
@@ -643,4 +643,39 @@ class SecureMCPServicer(mcp_pb2_grpc.MCPServiceServicer):
         self,
         request,
         context,
-        security_context:
+        security_context: SecurityContext
+    ) -> AuthResult:
+        """Authenticate the request based on the security context."""
+        # Implement authentication logic based on the security context
+        # This is a placeholder and should be replaced with actual implementation
+        return AuthResult(success=True, user_id="user123")
+    
+    async def _authorize_request(self, user_id: str, method: str) -> AuthResult:
+        """Authorize the request based on the user and method."""
+        # Implement authorization logic based on the user and method
+        # This is a placeholder and should be replaced with actual implementation
+        return AuthResult(success=True)
+    
+    def _check_session_limits(self, client_ip: str) -> bool:
+        """Check if client has exceeded session limits."""
+        active_sessions = sum(
+            1 for session in self.active_sessions.values()
+            if session["client_ip"] == client_ip
+        )
+        return active_sessions < self.security_config.max_sessions_per_ip
+    
+    def _cleanup_session(self, session_id: str) -> None:
+        """Clean up session resources."""
+        if session_id in self.active_sessions:
+            del self.active_sessions[session_id]
+    
+    async def _reject_request(
+        self,
+        context: grpc.aio.ServicerContext,
+        code: grpc.StatusCode,
+        message: str
+    ) -> None:
+        """Reject request with error."""
+        context.set_code(code)
+        context.set_details(message)
+        await context.abort(code, message)
