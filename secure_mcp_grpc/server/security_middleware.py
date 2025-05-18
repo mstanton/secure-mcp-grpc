@@ -17,7 +17,7 @@ It provides comprehensive security features including:
 The middleware implements defense-in-depth security principles and follows OWASP
 security best practices for gRPC services.
 
-Author: Matthew Stanton && Claude.ai
+Author: Matthew Stanton && Claude.Ai
 License: Apache 2.0
 """
 

@@ -19,7 +19,7 @@ The configuration implements defense-in-depth security principles including:
 - Account lockout
 - Token management
 
-Author: Matthew Stanton && Claude.ai
+Author: Matthew Stanton && Claude.Ai
 License: Apache 2.0
 """
 

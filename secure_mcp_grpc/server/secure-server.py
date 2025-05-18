@@ -5,7 +5,7 @@ A comprehensive secure gRPC server implementation for Model Context Protocol (MC
 Implements a defense-in-depth approach to security, including mutual TLS, token-based
 authentication, fine-grained authorization, rate limiting, and comprehensive auditing.
 
-Author: Claude
+Author: Matthew Stanton && Claude.Ai
 License: Apache 2.0
 """
 

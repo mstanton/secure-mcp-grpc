@@ -11,8 +11,7 @@ over MCP-gRPC. It captures detailed information about each interaction, includin
 - Performance metrics
 
 The data can be exported in various formats for analysis, visualization, and auditing.
-
-Author: Claude
+Author: Matthew Stanton && Claude.Ai
 License: Apache 2.0
 """
 

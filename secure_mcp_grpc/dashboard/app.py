@@ -5,7 +5,7 @@ This module provides a web-based dashboard for visualizing telemetry data
 collected from MCP-gRPC servers. It offers real-time monitoring of traffic
 patterns, security events, and performance metrics.
 
-Author: Claude
+Author: Matthew Stanton && Claude.Ai
 License: Apache 2.0
 """
 

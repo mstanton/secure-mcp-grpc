@@ -7,7 +7,7 @@ model interactions, and security events in the MCP-gRPC system.
 It includes both real-time and historical visualizations designed to make
 complex interaction patterns immediately understandable.
 
-Author: Claude
+Author: Matthew Stanton && Claude.Ai
 License: Apache 2.0
 """
 
