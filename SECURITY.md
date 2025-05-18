@@ -11,104 +11,69 @@ We currently support the following versions of Secure MCP-gRPC with security upd
 
 ## Reporting a Vulnerability
 
-The Secure MCP-gRPC team takes security vulnerabilities seriously. We appreciate your efforts to responsibly disclose any security concerns.
-
-### How to Report a Vulnerability
-
 **Please do not report security vulnerabilities through public GitHub issues.**
 
-Instead, please report them by emailing **security@example.com**. If possible, encrypt your message with our PGP key (available on our website).
+Report security vulnerabilities by emailing **security@example.com**. If possible, encrypt your message with our PGP key.
 
-Please include the following information in your report:
-
+Include in your report:
 - Type of vulnerability
-- Full path of the affected file(s)
-- Location of the affected source code (tag/branch/commit or direct URL)
-- Any special configuration required to reproduce the vulnerability
-- Step-by-step instructions to reproduce the vulnerability
-- Proof-of-concept or exploit code (if possible)
-- Impact of the vulnerability, including how an attacker might exploit it
+- Affected file(s) and code location
+- Steps to reproduce
+- Impact assessment
+- Proof-of-concept (if available)
 
-This information will help us triage your report more quickly.
-
-### What to Expect
-
-When you report a vulnerability, you will receive an acknowledgment within 48 hours. The Secure MCP-gRPC team will then follow these steps:
-
-1. **Confirmation**: We'll work to confirm the vulnerability and its impact.
-2. **Fixes**: We'll develop and test a fix for the vulnerability.
-3. **Disclosure**: We'll coordinate disclosure with you once a fix is prepared.
-
-Our goal is to resolve all security issues within 90 days of the initial report.
-
-### Bug Bounty
-
-We currently do not offer a bug bounty program, but we are grateful for your contributions to the security of this project. We will acknowledge all security researchers who report valid vulnerabilities in our release notes.
-
-## Security Best Practices for Users
-
-When using Secure MCP-gRPC, please follow these security best practices:
+## Security Best Practices
 
 ### Certificate Management
-
-- Use strong, properly generated certificates for mTLS authentication
+- Use strong certificates for mTLS authentication
 - Rotate certificates regularly
-- Protect private keys with appropriate file permissions
-- Use a secure certificate management system for production deployments
+- Protect private keys with appropriate permissions
+- Use secure certificate management in production
 
 ### Authentication
-
-- Use the strongest authentication method available for your use case
-- If using JWT or OAuth2, use short-lived tokens and implement token rotation
-- Validate all claims in authentication tokens, including audience and issuer
+- Use strongest available authentication method
+- Implement token rotation for JWT/OAuth2
+- Validate all token claims
 - Use asymmetric keys when possible
-- Never hardcode credentials in your application code
+- Never hardcode credentials
 
 ### Authorization
-
-- Follow the principle of least privilege
+- Follow principle of least privilege
 - Implement fine-grained access control
-- Regularly audit access control rules
+- Regular access control audits
 - Set default deny policies
 
 ### Network Security
-
-- Limit network exposure to trusted networks when possible
-- Use secure TLS configurations with modern cipher suites
-- Implement IP-based access controls where appropriate
-- Consider using a reverse proxy or API gateway for additional security
+- Limit network exposure to trusted networks
+- Use secure TLS configurations
+- Implement IP-based access controls
+- Consider using a reverse proxy
 
 ### Logging and Monitoring
-
 - Enable comprehensive audit logging
-- Monitor for suspicious activity patterns
-- Set up alerts for security events
-- Regularly review security logs
+- Monitor for suspicious activity
+- Set up security event alerts
+- Regular security log reviews
 
-### Updating
-
-- Keep Secure MCP-gRPC updated to the latest supported version
-- Update dependencies regularly
+### Updates
+- Keep Secure MCP-gRPC updated
+- Regular dependency updates
 - Subscribe to security announcements
 
-## Vulnerability Disclosure Policy
+## Vulnerability Disclosure
 
-Our vulnerability disclosure policy is as follows:
-
-1. Security vulnerabilities will be patched as quickly as possible.
-2. A security advisory will be published for all confirmed vulnerabilities.
-3. CVE IDs will be requested for significant security issues.
-4. Credit will be given to the reporter unless they wish to remain anonymous.
+1. Security vulnerabilities will be patched promptly
+2. Security advisories will be published
+3. CVE IDs will be requested for significant issues
+4. Credit will be given to reporters (unless anonymous)
 
 ## Security Contacts
-
-For any security-related questions or concerns, please contact:
 
 - **Security Team**: security@example.com
 - **Project Lead**: Matthew Stanton (matthew@example.com)
 
 ---
 
-This security policy was last updated on May 11, 2025.
+*Last updated: May 11, 2025*
 
 *Matthew Stanton & Claude AI*
