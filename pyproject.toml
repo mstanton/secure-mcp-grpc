@@ -11,7 +11,7 @@ requires-python = ">=3.8"
 license = {file = "LICENSE"}
 keywords = ["mcp", "grpc", "ai", "security", "telemetry"]
 authors = [
-    {name = "Claude AI", email = "info@anthropic.com"}
+    {name = "Matthew", email = "mrstanton81@gmaiil.com"}
 ]
 maintainers = [
     {name = "Claude AI", email = "info@anthropic.com"}
